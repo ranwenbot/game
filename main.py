@@ -717,6 +717,9 @@ def DoButton(obj):
         elif txt[0]=='M':
             AnswerCallback(obj["id"],"余额: "+str(GetUserInfo(obj["from"]["id"])),isalert=True)
         elif txt[0]=='S':
+            if not AliveGame[cid]["player"]:
+                AnswerCallback(obj["id"],"没人上车")
+                return
             AliveGame[cid]["game"]=GameObjList[AliveGame[cid]["typ"]]["obj"](AliveGame[cid]["player"])
             AliveGame[cid]["status"]=1
             AnswerCallback(obj["id"])
