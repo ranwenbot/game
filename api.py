@@ -46,11 +46,10 @@ def GetUserInfo(uid):
 def ChangeUserInfo(uid,mon):
     global UserInfo
     UserInfo[uid]+=mon
+    if UserInfo[uid]>0:
+        UserInfo[uid]%=(2**63)
     conn.execute('''
     UPDATE `user` set money=? where uid=?
     ''',(UserInfo[uid],uid))
     conn.commit()
 
-# print(GetUserInfo(233))
-# ChangeUserInfo(233,5)
-# print(GetUserInfo(233))

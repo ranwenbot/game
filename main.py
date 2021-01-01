@@ -38,6 +38,8 @@ HELPMESSAGE='''帮助
 
 
 def MakeRequest(method,data="",robj=req):
+    if DEBUG:
+        print("Make:"+method)
     if data=="":
         r=robj.get("https://api.telegram.org/bot"+BOTTOKEN+"/"+method)
     else:
@@ -45,6 +47,8 @@ def MakeRequest(method,data="",robj=req):
     resans=json.loads(r.text)
     if resans["ok"]!=True:
         logger.error(r.text)
+    if DEBUG:
+        print("Fin:"+r.text)
     return resans
 
 
@@ -85,6 +89,7 @@ def ServiceChange():
                     f.close()
         except:
             logger.error("Change")
+            ThErr()
         time.sleep(0.2)
 
 SenderQueue=[]
@@ -117,6 +122,7 @@ def ServiceSender():#TODO: rate limit
             time.sleep(net)
         except:
             logger.error("Sender")
+            ThErr()
             time.sleep(0.1)
 
 UpdaterQueue=[]
@@ -140,6 +146,7 @@ def ServiceUpdater():#TODO: merge & rate limit
             time.sleep(net)
         except:
             logger.error("Updater")
+            ThErr()
             time.sleep(0.1)
 
 CallbackQueue=[]
@@ -165,6 +172,7 @@ def ServiceCallback():#TODO: merge
             time.sleep(net)
         except:
             logger.error("Callback")
+            ThErr()
             time.sleep(0.1)
 
 def GetChange():
@@ -493,7 +501,7 @@ class GameBlackJackObj(object):
     def GenMess(self):
         mess="21点"
         sta=["未完成","已完成","黑杰克","爆炸"]
-        mess+="\n庄家: "+self.Redst[self.zjst[0]]+" "+self.Redst[self.zjst[1]]
+        mess+="\n庄家: "+self.Redst[self.zjst[0]]+" ?"
         for i in self.player:
             mess+="\n"+self.player[i]["name"]+"("+str(self.player[i]["money"])+"): "+self.arr2str(self.playerst[i])+sta[self.playerok[i]]
         return mess
@@ -575,13 +583,13 @@ for i in GameObjList:
 # Game end
 
 def GenBetButton(chatid):
-    return [[{"text":"5","callback_data":str(chatid)+"+X5"},
-    {"text":"10","callback_data":str(chatid)+"+X10"},
-    {"text":"50","callback_data":str(chatid)+"+X50"},
-    {"text":"50%","callback_data":str(chatid)+"+X50%"},
-    {"text":"sh","callback_data":str(chatid)+"+Xsh"}
+    return [[{"text":"5","callback_data":str(chatid)+"+*X5"},
+    {"text":"10","callback_data":str(chatid)+"+*X10"},
+    {"text":"50","callback_data":str(chatid)+"+*X50"},
+    {"text":"50%","callback_data":str(chatid)+"+*X50%"},
+    {"text":"sh","callback_data":str(chatid)+"+*Xsh"}
     ],
-    [{"text":"Start","callback_data":str(chatid)+"+S"},{"text":"余额","callback_data":str(chatid)+"+M"}]]
+    [{"text":"Start","callback_data":str(chatid)+"+*S"},{"text":"余额","callback_data":str(chatid)+"+*M"}]]
 
 AliveGame={}
 
@@ -622,7 +630,12 @@ def DoBet(userobj,chatid,st):
 def StartGame(chatid,typ):
     global AliveGame,SendReqIDTot
     if chatid in AliveGame:
-        SendMessage("上一局游戏还未结束 无法新建",chatid)
+        if AliveGame[chatid]["messid"]<0:
+            sbsb=AliveGame[chatid]["messid"]
+            if sbsb in SendReqIDMap:
+                AliveGame[chatid]["messid"]=SendReqIDMap[AliveGame[chatid]["messid"]]
+                SendReqIDMap.pop(sbsb)
+        SendMessage("上一局游戏还未结束 无法新建",chatid,reply=AliveGame[chatid]["messid"])
         return
     obj={"typ":typ,"player":{},"status":0,"messid":SendReqIDTot}
     AliveGame[chatid]=obj
@@ -704,8 +717,10 @@ def DoButton(obj):
         return
     txt=dat[1]
     if AliveGame[cid]["status"]==0:
-        if txt[0]=='X':
-            res=DoBet(obj["from"],cid,txt[1:])
+        if txt[0]!='*':
+            return
+        if txt[1]=='X':
+            res=DoBet(obj["from"],cid,txt[2:])
             sta=False
             if res[0]==0:
                 retx="成功 "
@@ -714,9 +729,9 @@ def DoButton(obj):
                 sta=True
             retx+=res[1]
             AnswerCallback(obj["id"],retx,isalert=sta)
-        elif txt[0]=='M':
+        elif txt[1]=='M':
             AnswerCallback(obj["id"],"余额: "+str(GetUserInfo(obj["from"]["id"])),isalert=True)
-        elif txt[0]=='S':
+        elif txt[1]=='S':
             if not AliveGame[cid]["player"]:
                 AnswerCallback(obj["id"],"没人上车")
                 return
@@ -740,39 +755,51 @@ def DoChange(cz):
 
 
 def ThErr():
-    ex_type, ex_val, ex_stack = sys.exc_info()
-    print(ex_type)
-    print(ex_val)
-    for stack in traceback.extract_tb(ex_stack):
-        print(stack)
+    if DEBUG:
+        ex_type, ex_val, ex_stack = sys.exc_info()
+        print(ex_type)
+        print(ex_val)
+        for stack in traceback.extract_tb(ex_stack):
+            print(stack)
+        print(ex_type,file=sys.stderr)
+        print(ex_val,file=sys.stderr)
+        for stack in traceback.extract_tb(ex_stack):
+            print(stack,file=sys.stderr)
 
 #main
 
+def main():
+    while True:
+        sttime=time.time()
+        ch=GetChange()
+        #print(ch)
+        for cz in ch:
+            DoChange(cz)
+        nend=[]
+        for i in AliveGame:
+            if "game" in AliveGame[i]:
+                try:
+                    AliveGame[i]["game"].NextTick()
+                    if AliveGame[i]["game"].NeedEnd:
+                        EndGame(i)
+                        nend.append(i)
+                    if AliveGame[i]["game"].NeedUpdate:
+                        UpdateGame(i)
+                except:
+                    logger.error("Update Game")
+                    if DEBUG:
+                        ThErr()
+        for i in nend:
+            AliveGame.pop(i)
+        edtime=time.time()
+        if DEBUG:
+            print(edtime-sttime)
+        net=max(2-edtime+sttime,0)
+        time.sleep(net)
 
-while True:
-    sttime=time.time()
-    ch=GetChange()
-    #print(ch)
-    for cz in ch:
-        DoChange(cz)
-    nend=[]
-    for i in AliveGame:
-        if "game" in AliveGame[i]:
-            try:
-                AliveGame[i]["game"].NextTick()
-                if AliveGame[i]["game"].NeedEnd:
-                    EndGame(i)
-                    nend.append(i)
-                if AliveGame[i]["game"].NeedUpdate:
-                    UpdateGame(i)
-            except:
-                logger.error("Update Game")
-                if DEBUG:
-                    ThErr()
-    for i in nend:
-        AliveGame.pop(i)
-    edtime=time.time()
-    if DEBUG:
-        print(edtime-sttime)
-    net=max(2-edtime+sttime,0)
-    time.sleep(net)
+
+try:
+    main()
+except:
+    ThErr()
+    exit(0)
